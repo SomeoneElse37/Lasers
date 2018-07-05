@@ -1,9 +1,33 @@
+"""
+A script to generate level progressions for the Lasers game.
+
+The layouts of and dependency relations between a selection of levels are hardcoded into this script.
+At the moment, the script basically just provides a collection of tools for ordering the levels in a progression,
+but in the future I hope to grant access to those tools from the command line.
+"""
 
 from collections import deque
 from operator import itemgetter, attrgetter
 import pyperclip
 
 def compose(*funcs):
+    """ Composes a series of functions, like the Haskell . operator.
+
+    Args:
+        *funcs: An arbitrary number of functions to be composed.
+
+    Returns:
+        A function that accepts whatever parameters funcs[-1] does, feeds those to funcs[-1],
+        feeds the result of that into funcs[-2], etc, all the way through funcs[0], and then
+        returns whatever funcs[0] returned.
+
+    >>> add1 = lambda n: n + 1
+    >>> times2 = lambda n: n * 2
+    >>> add3 = lambda n: n + 3
+    >>> f = compose(add1, times2, add3)
+    >>> f(4)
+    15
+    """
     def inner(*a, **kw):
         acc = funcs[-1](*a, **kw)
         for f in funcs[-2::-1]:
@@ -51,6 +75,15 @@ def clearUsages():
         elem.usages = 0
 
 class Level:
+    """ A class representing a Lasers level.
+
+    Attributes:
+        name: The name of the level. Mostly for use by level designers.
+        layout: The ASCII-art-like Unicode string used to define the level in PuzzleScript.
+        deps: A tuple of Levels and Objectives that introduce the gameplay concepts the Level uses.
+        usages: An integer used internally by gen_progressions, counting the number of paths from the level at the root of the progression to this level.
+            Messing with this could cause problems. Functions that use it are not thread-safe.
+    """
     def __init__(self, name, layout, *deps):
         self.name = name
         self.layout = layout
@@ -87,6 +120,13 @@ class Level:
             return self.name
 
 class Objective:
+    """ A class representing an abstract concept that appears in Lasers gameplay and/or level design.
+
+    Attributes:
+        opts: A tuple of Levels and Objectives that could each be used to introduce the abstract concept this Objective represents.
+        usages: An integer used internally by gen_progressions, counting the number of paths from the level at the root of the progression to this objective.
+            Messing with this could cause problems. Functions that use it are not thread-safe.
+    """
     def __init__(self, *opts):
         self.opts = opts
         self.usages = 0
@@ -113,17 +153,71 @@ class Objective:
 # They're used to generate the usage info, so if they also depend on the usage info, it'll cause problems.
 # frontload and backload work fine as usage_* params, though, since calcUsages() doesn't care about the order of the levels that the heuristic returns.
 def gen_progression(level, level_heuristic=takeall, obj_heuristic=takefirst, usage_level_heuristic=takeall, usage_obj_heuristic=takeall):
+    """ Takes a Level and a set of heuristics, and generates a level progression that tries to follow the heuristics,
+    but ensures that each level in the progression only uses concepts introduced earlier in the progression.
+
+    Args:
+        level: The Level object to generate a progression from. The generated progression will include all levels that this level
+            borrows concepts from, as filtered by the heuristics, and only those levels. As such, this level will always
+            be placed at the end of the progression.
+        level_heuristic: How the deps of each Level in the progression should be filtered and ordered. Should be a function that
+            takes a sequence (typically a tuple) as an argument and returns another sequence (such as a tuple or list).
+            Usually, you'll want this one to return a sequence containing all of the elements in the input sequence, but ordered in
+            a different way. Using a filtering heuristic here will likely result in a progression where many levels use concepts that
+            were never introduced.
+        obj_heuristic: How the opts of each Objective in the progression should be filtered and ordered. Like level_heuristic, this
+            argument should be a function that takes a sequence of Levels and Objectives and returns another sequence of Levels and
+            Objectives. The output sequence should contain at least one element from the input sequence, otherwise there will be nothing
+            to intoduce the Objective's concept. Also note that some of the levels in an Objective's opts are better at teaching
+            the concept than others, so keep that in mind.
+        usage_level_heuristic: How the deps of each Level in the progression should be filtered while while computing the usage attribute
+            of each. I HIGHlY recommend leaving this as the default takeall- the ordering of the sequence returned by this function does
+            not matter, and you'll usually want to use a non-filtering function for level_heuristic anyway.
+            Warning: Do not use a usage-filtering heuristic like take_most_used here. As this argument is used to generate the usage
+            statistics, the usage statistics will not be fully generated at the time when it is called, which could cause glitches.
+        usage_obj_heuristic: How the opts of each Objective in the progression should be filtered while computing the usage statistics.
+            If using anything other than the default takeall, I recommend using the same filter in obj_heuristic, optionally composed
+            with other heuristics, so that your usage-based heuristics don't have to look at levels whose usage stats were not computed at all.
+
+    Returns:
+        A Deque of Level objects ordered as described above. The level parameter will always be the last element, each Level will always
+        come somewhere after all the Levels it uses concepts from (as defined by deps and opts), and aside from that, the Levels will be
+        selected and ordered based on the various heuristic parameters.
+    """
     clearUsages()
     level.calcUsages(usage_level_heuristic, usage_obj_heuristic)
     return level.progression(level_heuristic, obj_heuristic)
 
-def prog_names(levels):
+def prog_names(levels, note=compose(len, remove_newlines, attrgetter('layout'))):
+    """ Formats a progression generated by gen_progression in a human-readable way by putting the name of each level on its
+    own line, along with a note that can help inform the user about the decisions that went into generating the progression.
+
+    Args:
+        levels: A sequence of Level objects, such as that returned by gen_progression
+        note: A function that takes a Level as an argument and returns an object with a .__str__() method, ideally one that relates to
+            the gen_progression heuristic parameters. The default computes the size of a Level; attrgetter('usages') will return the level's
+            usages stat, etc.
+
+    Returns:
+        A single string listing the names of each level in the progression in order, along with whatever the note function returns
+        when called on each.
+    """
     out = ""
     for elem in levels:
-        out += elem.name + ' (' + str(len(elem.layout.replace('\n', ''))) + ')\n'
+        out += '{} ({})\n'.format(elem.name, note(elem))
     return out
 
 def prog_layouts(levels):
+    """ Formats a progression generated by gen_progressions in Puzzlescript-friendly syntax. Each level is numbered sequentially,
+    starting at 1. Levels with empty layouts are skipped.
+
+    Args:
+        levels: A sequence of Level objects, such as one returned by gen_progressions
+
+    Returns:
+        A single string consisting of each level's layout in order, each preceded by a line formatted like 'message Level 1', with
+        the 1 replaced by the level's index in the sequence, with enough blank lines thrown in to make it all valid Puzzlescript syntax
+    """
     out = ""
     for i, elem in enumerate(filter((lambda a: len(a.layout) > 0), levels), start=1):
         out += 'message Level {}\n\n{}\n\n'.format(i, elem.layout)
@@ -133,9 +227,25 @@ with open('lasers_core.txt') as f:
     game_code = f.read()
 
 def copy_playable(levels):
+    """ Combines the Puzzlescript sourcecode read from lasers_core.txt with the layouts of the given levels (as formatted by prog_layouts)
+    to create a fully-functional Puzzlescript source file, then copies the whole thing to the system clipboard.
+
+    Args:
+        levels: A sequence of Level objects, such as one returned by gen_progressions
+    """
     pyperclip.copy(game_code + prog_layouts(levels))
 
 def copy_for_online(levels):
+    """ Generates a separate Puzzlescript source file for each level in the given sequence, and copies each in order to the system clipboard.
+
+    When called, this function first prints a prompt including the name of the first level in the progression to stdout. When the user
+    presses the Enter key on their keyboard, the function will generate a fully-functional Puzzlescript source file with that level and
+    that level alone, but not the level's name, and copy it to the system clipboard. The function will then print a prompt for the next
+    level, and so on until it runs out of levels.
+
+    Args:
+        levels: A sequence of Level objects, such as one returned by gen_progressions
+    """
     for elem in levels:
         input('Press ENTER to copy {}'.format(elem.name))
         pyperclip.copy(game_code + elem.layout)
@@ -464,6 +574,8 @@ print(prog_names(gen_progression(all_objs, larger_first, takeall)))
 
 
 
-
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
 
 
