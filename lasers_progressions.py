@@ -85,6 +85,14 @@ class Level:
             Messing with this could cause problems. Functions that use it are not thread-safe.
     """
     def __init__(self, name, layout, *deps):
+        """ Initializes a new Level object.
+
+        Args:
+            name: A string, representing the name of the level. This won't usually be shown to players.
+            layout: The layout of the level, in Puzzlescript's ASCII-art-like syntax. See the link in README.md for examples of how Lasers interprets
+                this syntax, and click the "Level Editor" link at the top for assistance in creating syntactically-valid levels.
+            *deps: A variable number of Level and Objective objects, each representing a concept that this Level uses.
+        """
         self.name = name
         self.layout = layout
         self.deps = deps
@@ -92,6 +100,18 @@ class Level:
         allLevels.append(self)
 
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
+        """ Generates a level progression based on this Level, following all the same rules as gen_progressions below.
+
+        Args:
+            level_heuristic: The heuristic filtering/sorting function to be invoked on the deps of this and all other Level objects in the progression.
+            obj_heuristic: The heuristic iltering/sorting function to be invoked on the opts of all Objective objects in the progression.
+
+        Returns:
+            A deque containing a progression of Levels (and no duplicates) ending with this Level.
+
+        Raises:
+            RecursionError: There is a dependency loop somewhere in the progression.
+        """
         prog = deque()
         prog.append(self)
         for dep in reversed(level_heuristic(self.deps, obj_heuristic=obj_heuristic)):
@@ -106,6 +126,14 @@ class Level:
         return prog
 
     def calcUsages(self, level_heuristic=takeall, obj_heuristic=takefirst):
+        """ Recursively computes the usage data for each Level and Objective in this Level's dependencies.
+
+        Args:
+            level_heuristic: How the deps of this level and each other level in the progression should be filtered.
+                There's really not a good reason to use anything other than the default takeall, as far as I know.
+            obj_heuristic: How the opts of each Objective in the progression should be filtered. Should be a superset of
+                the objects returned by the obj_heuristic parameter of a subsequent call to self.progression().
+        """
         for elem in level_heuristic(self.deps, obj_heuristic=obj_heuristic):
             elem.usages += 1
             elem.calcUsages(level_heuristic, obj_heuristic)
@@ -119,6 +147,9 @@ class Level:
         else:
             return self.name
 
+#NOTE to self: Move the code that flattens Objectives into a collection of Levels from those two heuristics into Level.progression(). Calling level_heuristic on that should just work.
+# If it does, that should simplify things.
+
 class Objective:
     """ A class representing an abstract concept that appears in Lasers gameplay and/or level design.
 
@@ -128,17 +159,47 @@ class Objective:
             Messing with this could cause problems. Functions that use it are not thread-safe.
     """
     def __init__(self, *opts):
+        """ Initializes a new Objective object.
+
+        Args:
+            *opts: A variable number of Level and Objective objects that could each be used to introduce the concept that this Objective's concept.
+        """
         self.opts = opts
         self.usages = 0
         allLevels.append(self)
 
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
+        """ Generates a progression for each of this Objective's opts, and strings them all together.
+
+        Unlike Level.progression() and gen_progression() (which calls Level.progression()), this method DOES NOT ensure that the returned deque
+        does not contain any duplicate levels. It simply calls .progression() on each object returned by obj_heuristic(self.opts), and concatenates
+        them all together. If obj_heuristic is the default takefirst or otherwise only returns one object from its argument, then this method will
+        simply return that selected object's progression, which will in that case not have any duplicate entries; but if obj_heuristic can return
+        multiple elements, this method can and usually will return duplicates.
+
+        Args:
+            level_heuristic: A function that determines how the deps of the Levels in the progression should be filtered and sorted. Does not apply to
+                this or other Objective objects, except by way of any of the Objective's opts that happen to be Levels.
+            obj_heuristic: A function that determines which opts' progressions should appear in the output sequence, and the order in which those
+                progressions should appear. Also applies in the same way to any other Objective objects encoutered while generating those progressions.
+
+        Returns:
+            A deque containing this Objective's recursively expanded dependencies, as described above.
+        """
         prog = deque()
         for elem in obj_heuristic(self.opts, obj_heuristic=obj_heuristic):
             prog.extend(elem.progression(level_heuristic, obj_heuristic))
         return prog
 
     def calcUsages(self, level_heuristic=takeall, obj_heuristic=takefirst):
+        """ Recursively computes the usage data for this Objective's opts in much the same way as Level.calcUsages().
+
+        Args:
+            level_heuristic: How the deps of the Levels in the progression should be filtered.
+                There's really not a good reason to use anything other than the default takeall, as far as I know.
+            obj_heuristic: How the opts of this and other Objectives in the progression should be filtered. Should be a superset of
+                the objects returned by the obj_heuristic parameter of a subsequent call to self.progression().
+        """
         for elem in obj_heuristic(self.opts, obj_heuristic=obj_heuristic):
             elem.usages += 1
             elem.calcUsages(level_heuristic, obj_heuristic)
