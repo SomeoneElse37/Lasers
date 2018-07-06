@@ -57,16 +57,10 @@ def remove_newlines(s):
     return s.replace('\n', '')
 
 def smaller_first(levels, **kw):
-    l = []
-    for level in levels:
-        l.extend(level.progression(takenone, kw['obj_heuristic']))
-    return sorted(l, key=compose(len, remove_newlines, attrgetter('layout')))
+    return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')))
 
 def larger_first(levels, **kw):
-    l = []
-    for level in levels:
-        l.extend(level.progression(takenone, kw['obj_heuristic']))
-    return sorted(l, key=compose(len, remove_newlines, attrgetter('layout')), reverse=True)
+    return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')), reverse=True)
 
 allLevels = []
 
@@ -99,6 +93,15 @@ class Level:
         self.usages = 0
         allLevels.append(self)
 
+    def flatten(self, *_, **__):
+        return [self]
+
+    def flat_deps(self, obj_heuristic=takefirst):
+        l = []
+        for dep in self.deps:
+            l.extend(dep.flatten(obj_heuristic))
+        return l
+
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
         """ Generates a level progression based on this Level, following all the same rules as gen_progressions below.
 
@@ -114,7 +117,7 @@ class Level:
         """
         prog = deque()
         prog.append(self)
-        for dep in reversed(level_heuristic(self.deps, obj_heuristic=obj_heuristic)):
+        for dep in reversed(level_heuristic(self.flat_deps(obj_heuristic))):
             depprog = dep.progression(level_heuristic, obj_heuristic)
             while len(depprog) > 0:
                 level = depprog.pop()
@@ -168,6 +171,12 @@ class Objective:
         self.usages = 0
         allLevels.append(self)
 
+    def flatten(self, obj_heuristic=takefirst):
+        l = []
+        for opt in obj_heuristic(self.opts):
+            l.extend(opt.flatten(obj_heuristic))
+        return l
+
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
         """ Generates a progression for each of this Objective's opts, and strings them all together.
 
@@ -186,6 +195,7 @@ class Objective:
         Returns:
             A deque containing this Objective's recursively expanded dependencies, as described above.
         """
+        print('Warning: Objective.progression() is now deprecated')
         prog = deque()
         for elem in obj_heuristic(self.opts, obj_heuristic=obj_heuristic):
             prog.extend(elem.progression(level_heuristic, obj_heuristic))
@@ -630,6 +640,9 @@ all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_tri
 print(prog_names(gen_progression(all_objs, usage_obj_heuristic=takefirst)))
 print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
 print(prog_names(gen_progression(all_objs, larger_first, takeall)))
+
+print(prog_names(gen_progression(all_objs, frontload, takeall), note=attrgetter('usages')))
+print(prog_names(gen_progression(all_objs, backload, takeall), note=attrgetter('usages')))
 
 # copy_for_online(gen_progression(all_objs, usage_obj_heuristic=takefirst))
 
