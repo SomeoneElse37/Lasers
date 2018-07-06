@@ -631,6 +631,9 @@ print(prog_names(gen_progression(all_objs, usage_obj_heuristic=takefirst)))
 print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
 print(prog_names(gen_progression(all_objs, larger_first, takeall)))
 
+print(prog_names(gen_progression(all_objs, frontload, takeall), note=attrgetter('usages')))
+print(prog_names(gen_progression(all_objs, backload, takeall), note=attrgetter('usages')))
+
 # copy_for_online(gen_progression(all_objs, usage_obj_heuristic=takefirst))
 
 
