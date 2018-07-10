@@ -150,9 +150,6 @@ class Level:
         else:
             return self.name
 
-#NOTE to self: Move the code that flattens Objectives into a collection of Levels from those two heuristics into Level.progression(). Calling level_heuristic on that should just work.
-# If it does, that should simplify things.
-
 class Objective:
     """ A class representing an abstract concept that appears in Lasers gameplay and/or level design.
 
@@ -173,9 +170,9 @@ class Objective:
 
     def flatten(self, obj_heuristic=takefirst):
         l = []
-        for opt in obj_heuristic(self.opts):
+        for opt in self.opts:
             l.extend(opt.flatten(obj_heuristic))
-        return l
+        return obj_heuristic(l)
 
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
         """ Generates a progression for each of this Objective's opts, and strings them all together.
