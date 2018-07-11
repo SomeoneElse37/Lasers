@@ -78,7 +78,7 @@ class Level:
         usages: An integer used internally by gen_progressions, counting the number of paths from the level at the root of the progression to this level.
             Messing with this could cause problems. Functions that use it are not thread-safe.
     """
-    def __init__(self, name, layout, *deps):
+    def __init__(self, name, layout, *deps, secret=False):
         """ Initializes a new Level object.
 
         Args:
@@ -86,12 +86,15 @@ class Level:
             layout: The layout of the level, in Puzzlescript's ASCII-art-like syntax. See the link in README.md for examples of how Lasers interprets
                 this syntax, and click the "Level Editor" link at the top for assistance in creating syntactically-valid levels.
             *deps: A variable number of Level and Objective objects, each representing a concept that this Level uses.
+            secret: If true, this Level will not be automatically appended to the global allLevels list.
+                Good for levels intended to only be used as test cases, etc.
         """
         self.name = name
         self.layout = layout
         self.deps = deps
         self.usages = 0
-        allLevels.append(self)
+        if not secret:
+            allLevels.append(self)
 
     def flatten(self, *_, **__):
         return [self]
@@ -349,9 +352,12 @@ def gists_for_online(levels):
     # print(repr(token))
     print('Summary:')
     for l in levels:
-        glink = PG.Gist(l.name, single_playable(l, 'Please exit and return to the survey'), 'script.txt', token)
-        gid = glink.split('/')[-1]
-        print('{}: https://www.puzzlescript.net/play.html?p={}'.format(l.name, gid))
+        try:
+            glink = PG.Gist(l.name, single_playable(l, 'Please exit and return to the survey'), 'script.txt', token)
+            gid = glink.split('/')[-1]
+            print('{}: https://www.puzzlescript.net/play.html?p={}'.format(l.name, gid))
+        except AttributeError:
+            pass
 
 first_steps = Level("First Steps", """#########
 #.≈..z.$!
@@ -666,7 +672,7 @@ p...g...@.........#
 #...#...#...###$@@#
 ###############!###""", func_wires, wall_wires, spin_tiles, move_tiles)
 
-all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor)
+all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor, secret=True)
 
 print(prog_names(gen_progression(all_objs, usage_obj_heuristic=takefirst)))
 # print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
@@ -678,6 +684,7 @@ print(prog_names(gen_progression(all_objs, backload, takeall), note=attrgetter('
 # copy_for_online(gen_progression(all_objs, usage_obj_heuristic=takefirst))
 
 # gists_for_online([first_steps, mess, wirefu])
+# gists_for_online(allLevels)
 
 if __name__ == "__main__":
     import doctest
