@@ -56,10 +56,10 @@ def takenone(levels, **_):
 def remove_newlines(s):
     return s.replace('\n', '')
 
-def smaller_first(levels, **kw):
+def smaller_first(levels, **_):
     return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')))
 
-def larger_first(levels, **kw):
+def larger_first(levels, **_):
     return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')), reverse=True)
 
 allLevels = []
@@ -78,7 +78,7 @@ class Level:
         usages: An integer used internally by gen_progressions, counting the number of paths from the level at the root of the progression to this level.
             Messing with this could cause problems. Functions that use it are not thread-safe.
     """
-    def __init__(self, name, layout, *deps, secret=False):
+    def __init__(self, name, layout, *deps):
         """ Initializes a new Level object.
 
         Args:
@@ -86,8 +86,6 @@ class Level:
             layout: The layout of the level, in Puzzlescript's ASCII-art-like syntax. See the link in README.md for examples of how Lasers interprets
                 this syntax, and click the "Level Editor" link at the top for assistance in creating syntactically-valid levels.
             *deps: A variable number of Level and Objective objects, each representing a concept that this Level uses.
-            secret: If true, this Level will not be automatically appended to the global allLevels list.
-                Good for levels intended to only be used as test cases, etc.
         """
         self.name = name
         self.layout = layout
@@ -97,9 +95,35 @@ class Level:
             allLevels.append(self)
 
     def flatten(self, *_, **__):
+        """ Returns this Level wrapped up as a singleton list.
+
+        Really only interesting because Objective.flatten() does somethign entirely different,
+        and the best way to implement it was for Levels to have a flatten() method that just
+        returns themselves in a singleton list.
+
+        Takes an arbitrary set of positional and keyword arguments and ignores them all. Again,
+        this is just for compatibility with the uch mroe interesting Objective.flatten().
+
+        Returns: Itself in a singleton list. As I'm sure you could guess at this point.
+        """
         return [self]
 
     def flat_deps(self, obj_heuristic=takefirst):
+        """ 'Flattens' this Level's deps, converting each Objective therein into a sequence of Levels.
+
+        Builds up a list by calling .flatten() on each of this object's deps and concatenating the results
+        together. There is a possibility for duplicate entries in the resulting list, if self.deps includes
+        Objectives with overlapping opts or a Level and an Objective with that Level as one of its opts.
+
+        Args:
+            obj_heuristic: How the opts of each Objective encountered should be filtered and sorted. See
+                the documentation for Level.progression() and Objective.progression() for more details.
+                Note that any sorting done here will usually be overridden, as Level.progression() calls
+                level_heuristic on the list returned by this function.
+
+        Returns: A list of Level objects drawn from this Level's deps, with each Objective therein replaced by
+            a sequence of Levels drawn from its opts
+        """
         l = []
         for dep in self.deps:
             l.extend(dep.flatten(obj_heuristic))
@@ -165,13 +189,36 @@ class Objective:
         """ Initializes a new Objective object.
 
         Args:
-            *opts: A variable number of Level and Objective objects that could each be used to introduce the concept that this Objective's concept.
+            *opts: A variable number of Level and Objective objects that could each be used to introduce the concept that this Objective represents.
         """
         self.opts = opts
         self.usages = 0
         allLevels.append(self)
 
     def flatten(self, obj_heuristic=takefirst):
+        """ Generates a list of Levels based on this Objective's opts.
+
+        This method recursively calls .flatten() on each element in self.opts, then concatenates the resulting lists together.
+        As Level.flatten() simply returns the Level itself (wrapped in a singleton list), the result will always be a list of Level objects.
+
+        After the recursion-concatenation flattening process is complete, obj_heuristic is called on the result. While it is true that each
+        Level in self.opts will only appear once in the concatenated list, while any Objectives in self.opts may have several representatives,
+        this *should* not cause any problems. If obj_heuristic only returns one element from the list it's given, then each Objective in
+        self.opts will have only one representative, so that's fair. If obj_heuristic doesn't do any filtering, then Objectives in self.opts
+        may well return multiple representatives, but in that case returning all of them is the whole point. If obj_heuristic only returns, say,
+        two elements from its input list, then those two elements may well be from the same nested Objective- but if you're nesting Objectives,
+        then that implies that any of the inner Objective's opts would fulfill this Objective's concept as well as any anything else in self.opts,
+        so no problem there.
+
+        If you can think of a scenario where this behavior is demonstrably wrong, please let me know.
+
+        Args:
+            obj_heuristic: How the Levels returned by the recursion-concatenation process should be filtered and sorted before being returned.
+                Note that any sorting done here will usually be overridden by a level_heuristic call later on in the function that called this
+                method. Level.progression() certainly will do that.
+
+        Returns: A list of Level objects created from this Objective's opts, as described above.
+        """
         l = []
         for opt in self.opts:
             l.extend(opt.flatten(obj_heuristic))
@@ -672,7 +719,7 @@ p...g...@.........#
 #...#...#...###$@@#
 ###############!###""", func_wires, wall_wires, spin_tiles, move_tiles)
 
-all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor, secret=True)
+all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor)
 
 print(prog_names(gen_progression(all_objs, usage_obj_heuristic=takefirst)))
 # print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
