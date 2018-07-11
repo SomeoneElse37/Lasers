@@ -64,6 +64,11 @@ def remove_newlines(s):
 # based on the levels' dependency relations, but that still leaves quite a lot of leeway. These heuristics help fill that gap by being called #
 # on various sub-progressions. If one of these heuristics returns a sequence that breaks the dependency relations, gen_progressions will      #
 # fix it by making minimal changes to the sequence returned by the heuristic.                                                                 #
+#                                                                                                                                             #
+# These heuristics can be combined by using the compose() function defined above. For example, to return only the largest level from the      #
+# input list, you can use this: compose(takefirst, larger_first)                                                                              #
+# This combined heuristic (that is, the function returned by compose()) will satisfy all the type requirements mentioned above, and can in    #
+# theory be passed to gen_progressions with no issues.                                                                                        #
 ###############################################################################################################################################
 
 def takeall(levels, **_):
