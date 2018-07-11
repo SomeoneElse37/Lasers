@@ -91,8 +91,7 @@ class Level:
         self.layout = layout
         self.deps = deps
         self.usages = 0
-        if not secret:
-            allLevels.append(self)
+        allLevels.append(self)
 
     def flatten(self, *_, **__):
         """ Returns this Level wrapped up as a singleton list.
@@ -117,7 +116,7 @@ class Level:
 
         Args:
             obj_heuristic: How the opts of each Objective encountered should be filtered and sorted. See
-                the documentation for Level.progression() and Objective.progression() for more details.
+                the documentation for gen_progression(), Level.progression() and Objective.progression() for more details.
                 Note that any sorting done here will usually be overridden, as Level.progression() calls
                 level_heuristic on the list returned by this function.
 
@@ -164,7 +163,7 @@ class Level:
             obj_heuristic: How the opts of each Objective in the progression should be filtered. Should be a superset of
                 the objects returned by the obj_heuristic parameter of a subsequent call to self.progression().
         """
-        for elem in level_heuristic(self.deps, obj_heuristic=obj_heuristic):
+        for elem in level_heuristic(self.flat_deps(obj_heuristic)):
             elem.usages += 1
             elem.calcUsages(level_heuristic, obj_heuristic)
 
@@ -233,6 +232,8 @@ class Objective:
         simply return that selected object's progression, which will in that case not have any duplicate entries; but if obj_heuristic can return
         multiple elements, this method can and usually will return duplicates.
 
+        Warning: This method is now deprecated. Its functionality is now baked into Level.progression() and Objective.flatten().
+
         Args:
             level_heuristic: A function that determines how the deps of the Levels in the progression should be filtered and sorted. Does not apply to
                 this or other Objective objects, except by way of any of the Objective's opts that happen to be Levels.
@@ -251,12 +252,15 @@ class Objective:
     def calcUsages(self, level_heuristic=takeall, obj_heuristic=takefirst):
         """ Recursively computes the usage data for this Objective's opts in much the same way as Level.calcUsages().
 
+        Warning: This method is now deprecated. Its functionality is now baked into Level.calcUsages() and Objective.flatten().
+
         Args:
             level_heuristic: How the deps of the Levels in the progression should be filtered.
                 There's really not a good reason to use anything other than the default takeall, as far as I know.
             obj_heuristic: How the opts of this and other Objectives in the progression should be filtered. Should be a superset of
                 the objects returned by the obj_heuristic parameter of a subsequent call to self.progression().
         """
+        print('Warning: Objective.calcUsages() is now deprecated')
         for elem in obj_heuristic(self.opts, obj_heuristic=obj_heuristic):
             elem.usages += 1
             elem.calcUsages(level_heuristic, obj_heuristic)
