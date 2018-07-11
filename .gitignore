@@ -105,3 +105,6 @@ venv.bak/
 
 # Backup files that Vim likes to create all the time
 *~
+
+# Gist login info (should not be pushed to GitHub, for obvious reasons)
+gist.login

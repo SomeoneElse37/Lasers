@@ -303,6 +303,25 @@ def copy_playable(levels):
     """
     pyperclip.copy(game_code + prog_layouts(levels))
 
+def single_playable(level, postmsg=None, premsg=None):
+    """ Generates a playable Puzzlescript source file with a single level, and optional messages to be given to the player before and after the level.
+
+    Args:
+        level: A Level object to use in the source file
+        postmsg: An optional message to be shown to the player after completing the level
+        premsg: An optional message to be shown to the player before seeing the level
+            Yes, the postmsg and premsg params appear to be reversed; this is because you're more usually going to want to set postmsg, but not premsg.
+
+    Returns: A single string as described above
+    """
+    out = [game_code.strip()]
+    if premsg is not None:
+        out.append('message ' + premsg)
+    out.append(level.layout)
+    if postmsg is not None:
+        out.append('message ' + postmsg)
+    return '\n\n'.join(out)
+
 def copy_for_online(levels):
     """ Generates a separate Puzzlescript source file for each level in the given sequence, and copies each in order to the system clipboard.
 
@@ -316,8 +335,23 @@ def copy_for_online(levels):
     """
     for elem in levels:
         input('Press ENTER to copy {}'.format(elem.name))
-        pyperclip.copy(game_code + elem.layout)
+        pyperclip.copy(single_playable(elem, 'Please exit and return to the survey'))
 
+def gists_for_online(levels):
+    """ Generates a series of one-level Puzzlescript source files, uploads each of them as a GitHub gist, and prints out a summary
+    with the level names and functional puzzlescript.net/play links.
+
+    See README.txt for details on the setup required to make this function work.
+    """
+    from PythonGists import PythonGists as PG
+    with open('gist.login') as f:
+        token = f.read().strip()
+    # print(repr(token))
+    print('Summary:')
+    for l in levels:
+        glink = PG.Gist(l.name, single_playable(l, 'Please exit and return to the survey'), 'script.txt', token)
+        gid = glink.split('/')[-1]
+        print('{}: https://www.puzzlescript.net/play.html?p={}'.format(l.name, gid))
 
 first_steps = Level("First Steps", """#########
 #.≈..z.$!
@@ -635,15 +669,15 @@ p...g...@.........#
 all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor)
 
 print(prog_names(gen_progression(all_objs, usage_obj_heuristic=takefirst)))
-print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
-print(prog_names(gen_progression(all_objs, larger_first, takeall)))
+# print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
+# print(prog_names(gen_progression(all_objs, larger_first, takeall)))
 
 print(prog_names(gen_progression(all_objs, frontload, takeall), note=attrgetter('usages')))
 print(prog_names(gen_progression(all_objs, backload, takeall), note=attrgetter('usages')))
 
 # copy_for_online(gen_progression(all_objs, usage_obj_heuristic=takefirst))
 
-
+# gists_for_online([first_steps, mess, wirefu])
 
 if __name__ == "__main__":
     import doctest
