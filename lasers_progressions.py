@@ -35,32 +35,145 @@ def compose(*funcs):
         return acc
     return inner
 
+def remove_newlines(s):
+    """ Strips all the newline characters (\\n) from the given input string.
+
+    >>> remove_newlines('abcd\\nefgh')
+    'abcdefgh'
+
+    Args:
+        s: The sreing to remove newlines from.
+
+    Returns: A new string with all the \\n characters deleted.
+    """
+    return s.replace('\n', '')
+
+###############################################################################################################################################
+# Heuristic Section                                                                                                                           #
+#                                                                                                                                             #
+# The following functions are all what the rest of this file calls "heuristics".                                                              #
+#                                                                                                                                             #
+# Each takes as input a slicable sequence (e.g. list or tuple; usually a tuple) of Level objects and an arbitrary set of keyword arguments.   #
+# At the moment, all the keyword arguments are completely ignored, although that may change in the future.                                    #
+#                                                                                                                                             #
+# Each returns another sequence of Level objects, usually either the same type as the input or a list.                                        #
+# The Levels in this output sequence are always a subset of the input Levels.                                                                 #
+#                                                                                                                                             #
+# These functions are passed to gen_prorgessions and related functions to determine which Levels should appear in the final progression       #
+# and to help determine how those Levels should be ordered. gen_progressions imposes a partial ordering upon the progressions it generates    #
+# based on the levels' dependency relations, but that still leaves quite a lot of leeway. These heuristics help fill that gap by being called #
+# on various sub-progressions. If one of these heuristics returns a sequence that breaks the dependency relations, gen_progressions will      #
+# fix it by making minimal changes to the sequence returned by the heuristic.                                                                 #
+###############################################################################################################################################
+
 def takeall(levels, **_):
+    """ Essentially a no-op. Takes a sequence of Level objects and returns it unchanged.
+
+    >>> takeall([1, 2, 3, 4])
+    [1, 2, 3, 4]
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: The exact same sequence of Level objects
+    """
     return levels
 
 def takeall_reversed(levels, **_):
+    """ Reverses a sequence of Level objects.
+
+    >>> takeall_reversed([1, 2, 3, 4])
+    [4, 3, 2, 1]
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: A list containing the same Level objects, in reverse order.
+    """
     return list(reversed(levels))
 
 def takefirst(levels, **_):
+    """ Returns the first element in the given Level sequence, returning it as a singleton sequence.
+
+    >>> takefirst([1, 2, 3, 4])
+    [1]
+
+    Args:
+        levels: A slicable sequence of Level objects (deques won't work here, but lists and tuples will)
+
+    Returns: A singleton sequence of the same type as the input (usually?) containing the first element form the input sequence
+    """
     return levels[0:1]
 
 def frontload(levels, **_):
+    """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
+    that introduce the most basic concepts) first.
+
+    Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
+        the root Level of the progression (which gen_progression() does)
+
+    Args:
+        levels: A sequence of Level objects.
+
+    Returns: A list (specifically a list, not a tuple or deque or whatever) containing all the same Level objects, sorted
+        so that the most-used Levels come first.
+    """
     return sorted(levels, key=attrgetter('usages'), reverse=True)
 
 def backload(levels, **_):
+    """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
+    that introduce the most basic concepts) as close to the levels where those concepts are actually used as possible.
+
+    Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
+        the root Level of the progression (which gen_progression() does)
+
+    Args:
+        levels: A sequence of Level objects.
+
+    Returns: A list (specifically a list, not a tuple or deque or whatever) containing all the same Level objects, sorted
+        so that the most-used Levels come last.
+    """
     return sorted(levels, key=attrgetter('usages'))
 
 def takenone(levels, **_):
+    """ Completely ignores the input sequence and returns an empty tuple.
+
+    Potentially useful if you want to generate a progression that completely ignores Objectives... or something like that.
+    I don't even remember why I wrote this function.
+
+    >>> takenone([1, 2, 3, 4])
+    ()
+
+    Args:
+        levels: A sequence of Level objects. COmpletely ignored.
+
+    Returns: The empty tuple ()
+    """
     return ()
 
-def remove_newlines(s):
-    return s.replace('\n', '')
-
 def smaller_first(levels, **_):
+    """ Sorts the input levels by their size- that is, by the actual number of grid squares present when loaded into PuzzleScript.
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: A list containing the same Levels, sorted such that the samller levels appear first.
+    """
     return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')))
 
 def larger_first(levels, **_):
+    """ Sorts the input levels by their size- that is, by the actual number of grid squares present when loaded into PuzzleScript- and reverses the result.
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: A list containing the same Levels, sorted such that the larger levels appear first.
+    """
     return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')), reverse=True)
+
+#####################################################################################################################
+# End of heuristic section. Beyond this point lies normal Python code that doesn't adhere to the description above. #
+#####################################################################################################################
 
 allLevels = []
 
@@ -96,12 +209,12 @@ class Level:
     def flatten(self, *_, **__):
         """ Returns this Level wrapped up as a singleton list.
 
-        Really only interesting because Objective.flatten() does somethign entirely different,
+        Really only interesting because Objective.flatten() does something entirely different,
         and the best way to implement it was for Levels to have a flatten() method that just
         returns themselves in a singleton list.
 
         Takes an arbitrary set of positional and keyword arguments and ignores them all. Again,
-        this is just for compatibility with the uch mroe interesting Objective.flatten().
+        this is just for compatibility with the much more interesting Objective.flatten().
 
         Returns: Itself in a singleton list. As I'm sure you could guess at this point.
         """
