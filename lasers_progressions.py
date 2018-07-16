@@ -7,7 +7,8 @@ but in the future I hope to grant access to those tools from the command line.
 """
 
 from collections import deque
-from operator import itemgetter, attrgetter
+from operator import itemgetter, attrgetter, methodcaller
+from itertools import zip_longest
 import pyperclip
 
 def compose(*funcs):
@@ -35,6 +36,32 @@ def compose(*funcs):
         return acc
     return inner
 
+def formattify(template, *nfuncs, **kwfuncs):
+    """ A very flexible tool for creating functions that convert an object into a formatted string.
+
+    >>> add1 = lambda n: n + 1
+    >>> times2 = lambda n: n * 2
+    >>> add3 = lambda n: n + 3
+    >>> ident = lambda n: n
+    >>> f = formattify('{n} + 1 = {}; {n} * 2 = {}; {n} + 3 = {}', add1, times2, add3, n=ident)
+    >>> f(4)
+    '4 + 1 = 5; 4 * 2 = 8; 4 + 3 = 7'
+
+    Args:
+        template: An object with a .format() method; typically a string
+        *nfuncs: An arbitrary number of functions that take a single object and return whatever template.format() will accept
+        **kwfuncs: An arbitrary number of functions bound to keywords that take a single object and, once again, return
+            objects of whatever types template.format() will look for
+
+    Returns: A function that takes a single object as an argument, passes it to each function in *nfuncs and **kwfuncs,
+        and passes all the results to template.format().
+    """
+    def inner(p):
+        nargs = [f(p) for f in nfuncs]
+        kwargs = {k:f(p) for (k, f) in kwfuncs.items()}
+        return template.format(*nargs, **kwargs)
+    return inner
+
 def remove_newlines(s):
     """ Strips all the newline characters (\\n) from the given input string.
 
@@ -53,10 +80,10 @@ def remove_newlines(s):
 #                                                                                                                                             #
 # The following functions are all what the rest of this file calls "heuristics".                                                              #
 #                                                                                                                                             #
-# Each takes as input a slicable sequence (e.g. list or tuple; usually a tuple) of Level objects and an arbitrary set of keyword arguments.   #
+# Each takes as input a slicable sequence (e.g. list or tuple- no deques here) of Level objects and an arbitrary set of keyword arguments.    #
 # At the moment, all the keyword arguments are completely ignored, although that may change in the future.                                    #
 #                                                                                                                                             #
-# Each returns another sequence of Level objects, usually either the same type as the input or a list.                                        #
+# Each returns another sequence of Level objects, usually either the same type as the input or just a list.                                   #
 # The Levels in this output sequence are always a subset of the input Levels.                                                                 #
 #                                                                                                                                             #
 # These functions are passed to gen_prorgessions and related functions to determine which Levels should appear in the final progression       #
@@ -110,12 +137,20 @@ def takefirst(levels, **_):
     """
     return levels[0:1]
 
-def frontload(levels, **_):
-    """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
+def frontload_base(levels, **_):
+    """ Sorts Levels based on their own usage data, so that gen_progression() will put the most-used levels (representing those
     that introduce the most basic concepts) first.
+
+    Technically works by sorting by the Levels' own usages attributes, not by any computation performed on those attributes.
+    I'm not certain that this works any differently when used to generate a progression than any other frontload heuristic.
 
     Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
         the root Level of the progression (which gen_progression() does)
+
+    >>> clearUsages()
+    >>> T1_0L7.calcUsages()
+    >>> [l.name for l in frontload_base(T1_all)]
+    ['2L4', '1L5', '1L6', '1L3', '0L7']
 
     Args:
         levels: A sequence of Level objects.
@@ -125,12 +160,26 @@ def frontload(levels, **_):
     """
     return sorted(levels, key=attrgetter('usages'), reverse=True)
 
-def backload(levels, **_):
+def backload_base(levels, **_):
     """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
     that introduce the most basic concepts) as close to the levels where those concepts are actually used as possible.
 
+    Technically works by sorting by the Levels' own usages attributes, not by any computation performed on those attributes.
+    This can lead to situations where progressions generated using this heuristic have more-used levels coming before less-used
+    levels when there's no real reason for it, due to a quirk in how .progression() works, when really I'd like the more-used
+    levels to come as late as possible. So this is less than ideal.
+
+    Each dependency of the root level has a usage of exactly 1 (assuming that none of them depend on each other), so this heuristic
+    cannot distinguish between them. As .progression() calls its heuristic on each of those dependencies, that's the source
+    of the error.
+
     Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
         the root Level of the progression (which gen_progression() does)
+
+    >>> clearUsages()
+    >>> T1_0L7.calcUsages()
+    >>> [l.name for l in backload_base(T1_all)]
+    ['0L7', '1L5', '1L6', '1L3', '2L4']
 
     Args:
         levels: A sequence of Level objects.
@@ -139,6 +188,105 @@ def backload(levels, **_):
         so that the most-used Levels come last.
     """
     return sorted(levels, key=attrgetter('usages'))
+
+def frontload_max(levels, **_):
+    """ Sorts Levels based on their dependencies' usage data, so that gen_progression() will put the most-used levels (representing those
+    that introduce the most basic concepts) first.
+
+    Technically works by sorting by the maximum usages attribute of any of the Level's dependencies, their dependencies, etc.
+    I'm not certain that this works any differently when used to generate a progression than any other frontload heuristic.
+
+    Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
+        the root Level of the progression (which gen_progression() does)
+
+    >>> clearUsages()
+    >>> T1_0L7.calcUsages()
+    >>> [l.name for l in frontload_max(T1_all)]
+    ['2L4', '1L6', '1L3', '0L7', '1L5']
+
+    Args:
+        levels: A sequence of Level objects.
+
+    Returns: A list (specifically a list, not a tuple or deque or whatever) containing all the same Level objects, sorted
+        so that the most-used Levels come first.
+    """
+    return sorted(levels, key=methodcaller('max_leaf_usage'), reverse=True)
+
+def backload_max(levels, **_):
+    """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
+    that introduce the most basic concepts) as close to the levels where those concepts are actually used as possible.
+
+    Technically works by sorting by the maximum usages attribute of any of the Level's dependencies, their dependencies, etc.
+    As such, this heuristic cannot distinguish between different levels that depend on the most-used leaf level- which, by
+    definition, has a lot of levels that depend on it. So that's less than ideal.
+
+    This heuristic was created in an attempt to solve the problems with backload_base, with partial success.
+
+    Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
+        the root Level of the progression (which gen_progression() does)
+
+    >>> clearUsages()
+    >>> T1_0L7.calcUsages()
+    >>> [l.name for l in backload_max(T1_all)]
+    ['1L5', '2L4', '1L6', '1L3', '0L7']
+
+    Args:
+        levels: A sequence of Level objects.
+
+    Returns: A list (specifically a list, not a tuple or deque or whatever) containing all the same Level objects, sorted
+        so that the most-used Levels come last.
+    """
+    return sorted(levels, key=methodcaller('max_leaf_usage'))
+
+def frontload_sum(levels, **_):
+    """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
+    that introduce the most basic concepts) first.
+
+    Technically works by sorting by the Level's .sum_leaf_usage() methods, which compute the sum of the usages of the Level's
+    dependencies that have no deps of their own, counting each as many times as it appears as a dependency.
+    I'm not certain that this works any differently when used to generate a progression than any other frontload heuristic.
+
+    Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
+        the root Level of the progression (which gen_progression() does)
+
+    >>> clearUsages()
+    >>> T1_0L7.calcUsages()
+    >>> [l.name for l in frontload_sum(T1_all)]
+    ['0L7', '2L4', '1L6', '1L3', '1L5']
+
+    Args:
+        levels: A sequence of Level objects.
+
+    Returns: A list (specifically a list, not a tuple or deque or whatever) containing all the same Level objects, sorted
+        so that the most-used Levels come first.
+    """
+    return sorted(levels, key=methodcaller('sum_leaf_usage'), reverse=True)
+
+def backload_sum(levels, **_):
+    """ Sorts Levels based on their usage data, so that gen_progression() will put the most-used levels (representing those
+    that introduce the most basic concepts) as close to the levels where those concepts are actually used as possible.
+
+    Technically works by sorting by the Level's .sum_leaf_usage() methods, which compute the sum of the usages of the Level's
+    dependencies that have no deps of their own, counting each as many times as it appears as a dependency.
+
+    This heuristic was created in an attempt to provide something between backload_base and backload_max, as they each did
+    parts of what I really wanted to do.
+
+    Precondition: All elements of levels have already had their usage information computed, e.g. by calling .calcUsages() on
+        the root Level of the progression (which gen_progression() does)
+
+    >>> clearUsages()
+    >>> T1_0L7.calcUsages()
+    >>> [l.name for l in backload_sum(T1_all)]
+    ['1L5', '2L4', '1L6', '1L3', '0L7']
+
+    Args:
+        levels: A sequence of Level objects.
+
+    Returns: A list (specifically a list, not a tuple or deque or whatever) containing all the same Level objects, sorted
+        so that the most-used Levels come last.
+    """
+    return sorted(levels, key=methodcaller('sum_leaf_usage'))
 
 def takenone(levels, **_):
     """ Completely ignores the input sequence and returns an empty tuple.
@@ -159,6 +307,9 @@ def takenone(levels, **_):
 def smaller_first(levels, **_):
     """ Sorts the input levels by their size- that is, by the actual number of grid squares present when loaded into PuzzleScript.
 
+    >>> [l.name for l in smaller_first(T1_all)]
+    ['1L3', '2L4', '1L5', '1L6', '0L7']
+
     Args:
         levels: A sequence of Level objects
 
@@ -169,6 +320,9 @@ def smaller_first(levels, **_):
 def larger_first(levels, **_):
     """ Sorts the input levels by their size- that is, by the actual number of grid squares present when loaded into PuzzleScript- and reverses the result.
 
+    >>> [l.name for l in larger_first(T1_all)]
+    ['0L7', '1L6', '1L5', '2L4', '1L3']
+
     Args:
         levels: A sequence of Level objects
 
@@ -176,9 +330,37 @@ def larger_first(levels, **_):
     """
     return sorted(levels, key=compose(len, remove_newlines, attrgetter('layout')), reverse=True)
 
+def by_lnum(levels, **_):
+    """ Sorts the input levels by their internal lnum value, guaranteeing a total ordering. Handy for debugging.
+
+    Use this as the rightmost heuristic in a compose()'d chain, and compare it with a compose()'d
+    chain with reversed_lnum() as the rightmost heuristic to see to what extent the other heuristics
+    in the chain and the gen_progression dependency partial ordering actually determine the result.
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: A list containing the same Level objects, sorted in an arbitrary (but reliable) order.
+    """
+    return sorted(levels, key=attrgetter('lnum'))
+
+def reversed_lnum(levels, **_):
+    """ Sorts the input levels by their internal lnum value in reverse order, guaranteeing a total ordering. Handy for debugging.
+
+    This is just like by_lnum, but sorts in reverse order. See by_lnum for more details.
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: A list containing the same Level objects, sorted in an arbitrary (but reliable) order.
+    """
+    return sorted(levels, key=attrgetter('lnum'), reverse=True)
+
 #####################################################################################################################
 # End of heuristic section. Beyond this point lies normal Python code that doesn't adhere to the description above. #
 #####################################################################################################################
+
+# global_lnum = 1
 
 allLevels = []
 
@@ -194,6 +376,7 @@ class Level:
         layout: The ASCII-art-like Unicode string used to define the level in PuzzleScript.
         deps: A tuple of Levels and Objectives that introduce the gameplay concepts the Level uses.
         usages: An integer used internally by gen_progressions, counting the number of paths from the level at the root of the progression to this level.
+        lnum: A unique ID for the Level, based on the order in which the Level objects are created. Useful for debugging.
             Messing with this could cause problems. Functions that use it are not thread-safe.
     """
     def __init__(self, name, layout, *deps):
@@ -210,6 +393,8 @@ class Level:
         self.deps = deps
         self.usages = 0
         allLevels.append(self)
+        self.lnum = len(allLevels) # global_lnum
+        # global_lnum += 1
 
     def flatten(self, *_, **__):
         """ Returns this Level wrapped up as a singleton list.
@@ -245,6 +430,49 @@ class Level:
         for dep in self.deps:
             l.extend(dep.flatten(obj_heuristic))
         return l
+
+    def max_leaf_usage(self):
+        """ Fetches the maximum usage of this level's deps, their deps/opts, etc.
+
+        This is what the frontload and backload heuristics *actually* look at.
+
+        >>> clearUsages()
+        >>> T1_0L7.calcUsages()
+        >>> T1_0L7.usages
+        0
+        >>> T1_2L4.usages
+        2
+        >>> T1_0L7.max_leaf_usage()
+        2
+
+        Returns: An integer, equal to the highest usage stat found in this Level or anything it depends on.
+        """
+        return max([l.max_leaf_usage() for l in self.deps], default=self.usages)
+
+    def sum_leaf_usage(self):
+        """ Computes the sum of the usage stats of each 'leaf' node in this Level's dependencies.
+
+        If this Level has no deps, return self.usages. This is what I mean by a 'leaf' node.
+        If this Level has deps, recursively call this method on each of them and add the results. Do not include
+            this Level's usages in the result, as it already counts toward each of the deps' usages.
+
+        >>> clearUsages()
+        >>> T1_0L7.calcUsages()
+        >>> T1_1L5.sum_leaf_usage()
+        1
+        >>> T1_2L4.sum_leaf_usage()
+        2
+        >>> T1_1L3.sum_leaf_usage()
+        2
+        >>> T1_0L7.sum_leaf_usage()
+        5
+
+        Returns: An integer, as described above.
+        """
+        if len(self.deps) == 0:
+            return self.usages
+        else:
+            return sum([l.sum_leaf_usage() for l in self.deps])
 
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
         """ Generates a level progression based on this Level, following all the same rules as gen_progressions below.
@@ -341,6 +569,38 @@ class Objective:
             l.extend(opt.flatten(obj_heuristic))
         return obj_heuristic(l)
 
+    def max_leaf_usage(self):
+        """ Fetches the maximum usage of this objective's opts, their opts/deps, etc.
+
+        This is what the frontload and backload heuristics *actually* look at.
+
+        # >>> clearUsages()
+        # >>> T1_0L7.calcUsages()
+        # >>> T1_0L7.usages
+        # 0
+        # >>> T1_2L4.usages
+        # 2
+        # >>> T1_0L7.max_leaf_usage
+        # 2
+
+        Returns: An integer, equal to the highest usage stat found in any of this Objective's opts
+            or any of their depenencies.
+        """
+        return max([l.max_leaf_usage() for l in self.opts], default=self.usages)
+
+    def sum_leaf_usage(self):
+        """ Computes the sum of the usage stats of each 'leaf' node in this Objective's opts.
+
+        If this Objective has no opts, return self.usages (which will normally be 0).
+        If this Objective has opts, recursively call this method on each of them and add the results.
+
+        Returns: An integer, as described above.
+        """
+        if len(self.opts) == 0:
+            return self.usages
+        else:
+            return sum([l.sum_leaf_usage() for l in self.opts])
+
     def progression(self, level_heuristic=takeall, obj_heuristic=takefirst):
         """ Generates a progression for each of this Objective's opts, and strings them all together.
 
@@ -396,6 +656,25 @@ def gen_progression(level, level_heuristic=takeall, obj_heuristic=takefirst, usa
     """ Takes a Level and a set of heuristics, and generates a level progression that tries to follow the heuristics,
     but ensures that each level in the progression only uses concepts introduced earlier in the progression.
 
+    >>> [l.name for l in gen_progression(T1_0L7)]
+    ['2L4', '1L3', '1L6', '1L5', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, frontload_base)]
+    ['2L4', '1L3', '1L6', '1L5', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, backload_base)]
+    ['2L4', '1L3', '1L6', '1L5', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, frontload_max)]
+    ['2L4', '1L3', '1L6', '1L5', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, backload_max)]
+    ['1L5', '2L4', '1L3', '1L6', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, frontload_sum)]
+    ['2L4', '1L3', '1L6', '1L5', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, backload_sum)]
+    ['1L5', '2L4', '1L3', '1L6', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, smaller_first)]
+    ['2L4', '1L3', '1L5', '1L6', '0L7']
+    >>> [l.name for l in gen_progression(T1_0L7, larger_first)]
+    ['2L4', '1L6', '1L5', '1L3', '0L7']
+
     Args:
         level: The Level object to generate a progression from. The generated progression will include all levels that this level
             borrows concepts from, as filtered by the heuristics, and only those levels. As such, this level will always
@@ -428,15 +707,30 @@ def gen_progression(level, level_heuristic=takeall, obj_heuristic=takefirst, usa
     level.calcUsages(usage_level_heuristic, usage_obj_heuristic)
     return level.progression(level_heuristic, obj_heuristic)
 
-def prog_names(levels, note=compose(len, remove_newlines, attrgetter('layout'))):
+default_note = formattify('Size ={:4}, Usages ={:3}, Max ={:4}, Sum ={:5}', compose(len, remove_newlines, attrgetter('layout')), \
+        attrgetter('usages'), methodcaller('max_leaf_usage'), methodcaller('sum_leaf_usage'))
+
+def lvl_name(level, note=default_note):
+    """ Prettyprints the name of the given Level along with an optional message.
+
+    Args:
+        level: The Level to be printed
+        note: A Level -> String function, as described in prog_names
+    """
+    if level is None:
+        return ''
+    else:
+        return '{:25} ({})'.format(level.name, note(level))
+
+def prog_names(levels, note=default_note):
     """ Formats a progression generated by gen_progression in a human-readable way by putting the name of each level on its
     own line, along with a note that can help inform the user about the decisions that went into generating the progression.
 
     Args:
         levels: A sequence of Level objects, such as that returned by gen_progression
         note: A function that takes a Level as an argument and returns an object with a .__str__() method, ideally one that relates to
-            the gen_progression heuristic parameters. The default computes the size of a Level; attrgetter('usages') will return the level's
-            usages stat, etc.
+            the gen_progression heuristic parameters. The default includes the size of the Level and the numbers used by the three
+            different frontload/backload heuristics.
 
     Returns:
         A single string listing the names of each level in the progression in order, along with whatever the note function returns
@@ -444,8 +738,29 @@ def prog_names(levels, note=compose(len, remove_newlines, attrgetter('layout')))
     """
     out = ""
     for elem in levels:
-        out += '{} ({})\n'.format(elem.name, note(elem))
+        out += lvl_name(elem, note) + '\n'
     return out
+
+def debug_progressions(level, level_heuristic=takeall, obj_heuristic=takefirst, usage_level_heuristic=takeall, usage_obj_heuristic=takeall):
+    """ Generates two progressions based on the inputs, and prints them side-by-side for debug purposes.
+
+    Each progression has all ties broken by lnum. The left-hand preogression sorts by lnum normally, while
+    the right-hand progression sorts by lnum in reverse order.
+
+    Args: Exactly the same as gen_progression. Go read that function's documentation.
+
+    Returns: A single string, comparing the two progressions side by side.
+    """
+    prog1 = gen_progression(level, compose(level_heuristic, by_lnum), compose(obj_heuristic, by_lnum),
+            compose(usage_level_heuristic, by_lnum), compose(usage_obj_heuristic, by_lnum))
+    names1 = [lvl_name(a) for a in prog1]
+    prog2 = gen_progression(level, compose(level_heuristic, reversed_lnum), compose(obj_heuristic, reversed_lnum),
+            compose(usage_level_heuristic, reversed_lnum), compose(usage_obj_heuristic, reversed_lnum))
+    names2 = [lvl_name(b) for b in prog2]
+    out = []
+    for a, b in zip_longest(names1, names2):
+        out.append('{}   #   {}\n'.format(a, b))
+    return ''.join(out)
 
 def prog_layouts(levels):
     """ Formats a progression generated by gen_progressions in Puzzlescript-friendly syntax. Each level is numbered sequentially,
@@ -605,6 +920,8 @@ p...@...#.+....$!
 #...#...#......##
 #################""", button, func_wires)
 wall_wires = Objective(teach_wires, lock_key_1)
+
+multi_wires = Objective(lock_key_1)
 
 ft1 = Level("FT1", """####################
 p....g+$._++k.._..$!
@@ -839,21 +1156,60 @@ p...g...@.........#
 #...#...@...#....+#
 #.*.#.ø.$.t+$....+#
 #...#...#...###$@@#
-###############!###""", func_wires, wall_wires, spin_tiles, move_tiles)
+###############!###""", func_wires, wall_wires, spin_tiles, move_tiles, multi_wires, button)
 
-all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor)
+all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, multi_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor, wirefu)
 
-print(prog_names(gen_progression(all_objs, usage_obj_heuristic=takefirst)))
+print(debug_progressions(all_objs, usage_obj_heuristic=takefirst))
 # print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
 # print(prog_names(gen_progression(all_objs, larger_first, takeall)))
 
-print(prog_names(gen_progression(all_objs, frontload, takeall), note=attrgetter('usages')))
-print(prog_names(gen_progression(all_objs, backload, takeall), note=attrgetter('usages')))
+print(' ========== frontload_base ========== ')
+print(debug_progressions(all_objs, frontload_base, takeall))
+print(' ========== frontload_max ========== ')
+print(debug_progressions(all_objs, frontload_max, takeall))
+print(' ========== frontload_sum ========== ')
+print(debug_progressions(all_objs, frontload_sum, takeall))
+
+print(' ========== backload_base ========== ')
+print(debug_progressions(all_objs, backload_base, takeall))
+print(' ========== backload_max ========== ')
+print(debug_progressions(all_objs, backload_max, takeall))
+print(' ========== backload_sum ========== ')
+print(debug_progressions(all_objs, backload_sum, takeall))
+
+print(' ========== WireFu ========== ')
+print(debug_progressions(wirefu, by_lnum, takeall))
+print(debug_progressions(wirefu, by_lnum, compose(takefirst, frontload_base)))
+print(debug_progressions(wirefu, by_lnum, compose(takefirst, backload_base)))
+print(debug_progressions(wirefu, by_lnum, compose(takefirst, frontload_max)))
+print(debug_progressions(wirefu, by_lnum, compose(takefirst, backload_max)))
+print(debug_progressions(wirefu, by_lnum, compose(takefirst, frontload_sum)))
+print(debug_progressions(wirefu, by_lnum, compose(takefirst, backload_sum)))
+
+print(' ========== Trying to get compact all_objs progressions ========== ')
+print(debug_progressions(all_objs, by_lnum, compose(takefirst, frontload_base)))
+print(debug_progressions(all_objs, by_lnum, compose(takefirst, backload_base)))
 
 # copy_for_online(gen_progression(all_objs, usage_obj_heuristic=takefirst))
 
 # gists_for_online([first_steps, mess, wirefu])
 # gists_for_online(allLevels)
+
+# For Testing
+# Tree 1 (all nodes are Levels and depend on linked nodes below them)
+# Node syntax: uLs, where u = expected usages and s = size
+#     0L7
+#    / | \
+# 1L3 1L6 |
+#   \ /   |
+#   2L4  1L5
+T1_1L5 = Level('1L5', '#####')
+T1_2L4 = Level('2L4', '####')
+T1_1L6 = Level('1L6', '######', T1_2L4)
+T1_1L3 = Level('1L3', '###', T1_2L4)
+T1_0L7 = Level('0L7', '#######', T1_1L3, T1_1L6, T1_1L5)
+T1_all = [T1_1L5, T1_2L4, T1_1L6, T1_1L3, T1_0L7]
 
 if __name__ == "__main__":
     import doctest
