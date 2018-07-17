@@ -356,6 +356,18 @@ def reversed_lnum(levels, **_):
     """
     return sorted(levels, key=attrgetter('lnum'), reverse=True)
 
+def preference(levels, **_):
+    """ Rearranges the input levels so that the ones with the 'preferred' tag set to True come first.
+
+    I recommend combining this with takefirst: compose(takefirst, preference, some_other_heuristic)
+
+    Args:
+        levels: A sequence of Level objects
+
+    Returns: The same sequence, but with all the preferred levels at the front
+    """
+    return sorted(levels, key=attrgetter('preferred'), reverse=True)
+
 #####################################################################################################################
 # End of heuristic section. Beyond this point lies normal Python code that doesn't adhere to the description above. #
 #####################################################################################################################
@@ -378,8 +390,9 @@ class Level:
         usages: An integer used internally by gen_progressions, counting the number of paths from the level at the root of the progression to this level.
         lnum: A unique ID for the Level, based on the order in which the Level objects are created. Useful for debugging.
             Messing with this could cause problems. Functions that use it are not thread-safe.
+        preferred: A tag applied to levels that the developers subjectively like and think are better than the alternatives which may show up in some progressions. Doesn't do anything on its own, but can be read by heuristics.
     """
-    def __init__(self, name, layout, *deps):
+    def __init__(self, name, layout, *deps, preferred=False):
         """ Initializes a new Level object.
 
         Args:
@@ -387,14 +400,15 @@ class Level:
             layout: The layout of the level, in Puzzlescript's ASCII-art-like syntax. See the link in README.md for examples of how Lasers interprets
                 this syntax, and click the "Level Editor" link at the top for assistance in creating syntactically-valid levels.
             *deps: A variable number of Level and Objective objects, each representing a concept that this Level uses.
+            preferred: Whether or not to mark this Level's preferred flag.
         """
         self.name = name
         self.layout = layout
         self.deps = deps
         self.usages = 0
         allLevels.append(self)
-        self.lnum = len(allLevels) # global_lnum
-        # global_lnum += 1
+        self.lnum = len(allLevels)
+        self.preferred = preferred
 
     def flatten(self, *_, **__):
         """ Returns this Level wrapped up as a singleton list.
@@ -902,6 +916,7 @@ fw1 = Level("FW1", """#########
 p.µ..t+@#
 #########""", spin_tiles)
 func_wires = Objective(clear_mud, mess, fw1)
+glass = Objective(clear_mud)
 
 teach_wires = Level("Teaching Wires", """################
 #d..ß..##....$.!
@@ -937,7 +952,7 @@ ft2 = Level("FT2", """###################
 p.._.+._.+._.+._.*#
 ##...+.+.+.+.+.+..#
 #....i++.i++.i++..#
-###################""", move_tiles, button, func_wires, wall_wires)
+###################""", move_tiles, button, func_wires, wall_wires, preferred=True)
 ft3 = Level("FT3", """###################
 #....›...$...›...$!
 #.###@###@###@###@#
@@ -964,7 +979,7 @@ p.........$!
 #...#*#...@#
 #.d.%*%.f+@#
 #...###...@#
-############""", move_tiles)
+############""", move_tiles, glass)
 b3 = Level("B3", """############
 p.®..d.ω..$!
 #....z....@#
@@ -1038,7 +1053,7 @@ p..++++........$!
 #...b...+.......#
 #.....i.+.t›ti..#
 #...i++++..w....#
-#################""", spin_tiles, move_tiles, half_mirror, wall_wires)
+#################""", spin_tiles, move_tiles, half_mirror, wall_wires, glass)
 splitmerge_3 = Level("Next Splittermerge", """##############
 #..._@+++...##
 p.*.k.¥.+...$!
@@ -1055,7 +1070,7 @@ p.*.k.¥.+...$!
 #...#...#.&+@#
 #.¨.%...%.f.##
 #...#...#...##
-##############""", spin_tiles, move_tiles, half_mirror, wall_wires)
+##############""", spin_tiles, move_tiles, half_mirror, wall_wires, glass)
 splitmerge_4 = Level("Fourth Splittermerge", """##################
 #######.......####
 p...$.$.c.≥.z.$.$!
@@ -1064,7 +1079,7 @@ p...$.$.c.≥.z.$.$!
 #...++g++++++++++#
 #................#
 #.....e.œ...®....#
-##################""", spin_tiles, move_tiles, half_mirror, wall_wires)
+##################""", spin_tiles, move_tiles, half_mirror, wall_wires, glass, preferred=True)
 splittermerge = Objective(splitmerge_1, splitmerge_2, splitmerge_3, splitmerge_4)
 
 beamlock_1 = Level("Beamlock", """##@@@#######
@@ -1075,7 +1090,7 @@ p.k.g.s..¥$!
 #.......q.@#
 #.....´...@#
 #...t.....@#
-####@@@@@@@#""", move_tiles, splittermerge, func_wires, wall_wires)
+####@@@@@@@#""", move_tiles, splittermerge, func_wires, wall_wires, preferred=True)
 beamlock_2 = Level("Beamlock 2", """########
 p..s..$!
 #....´@@
@@ -1125,7 +1140,7 @@ experiment = Level("Experiment", """#@@@@@@@@###
 ##..+......#
 ##..h..ø...#
 ##.........#
-######p#####""", spin_tiles, move_tiles, func_wires, wall_wires)
+######p#####""", spin_tiles, move_tiles, func_wires, wall_wires, glass)
 slight_compact = Level("Slightly Compacted", """...##@@@@@@++++++.
 ...#.+...##.....+.
 ...#.+.g+@#.....+.
@@ -1156,9 +1171,27 @@ p...g...@.........#
 #...#...@...#....+#
 #.*.#.ø.$.t+$....+#
 #...#...#...###$@@#
-###############!###""", func_wires, wall_wires, spin_tiles, move_tiles, multi_wires, button)
+###############!###""", func_wires, wall_wires, spin_tiles, move_tiles, multi_wires, button, glass)
+
+talos = Level('Talos', """########################
+p..ç´¥¥...$.....#.....##
+#.........@.....#.....##
+#......r.f@.....#.....##
+#...#.....@.....#.....##
+#...#c.%..$..a..#.._..##
+#...#.....#.....#..+..##
+#...#.....#.....$..&++$!
+#...#.....#.....@..+..##
+#...#.....%....f@.._..##
+#...#t....#.....#.....##
+#...#@@$###.....#.....##
+#........a#.....#.....##
+#.........#.....#.....##
+########################""", move_tiles, button, mirror_cube, half_mirror, func_wires, feed_trip, splittermerge, beamlock, glass)
 
 all_objs = Level("All Objectives Complete", "", func_wires, wall_wires, multi_wires, feed_trip, barrier, parity, splittermerge, beamlock, hodor, bad_sensor, wirefu)
+
+wire_talos = Level("WireFu+Talos Complete", "", wirefu, talos)
 
 print(debug_progressions(all_objs, usage_obj_heuristic=takefirst))
 # print(prog_names(gen_progression(all_objs, smaller_first, takeall)))
@@ -1190,6 +1223,15 @@ print(debug_progressions(wirefu, by_lnum, compose(takefirst, backload_sum)))
 print(' ========== Trying to get compact all_objs progressions ========== ')
 print(debug_progressions(all_objs, by_lnum, compose(takefirst, frontload_base)))
 print(debug_progressions(all_objs, by_lnum, compose(takefirst, backload_base)))
+
+print(' ========== WireFu + Talos ========== ')
+print(debug_progressions(wire_talos, frontload_sum, compose(takefirst, preference, frontload_base)))
+print(debug_progressions(wire_talos, backload_sum, compose(takefirst, preference, frontload_base)))
+
+# input('Press ENTER to copy the frontloaded progression')
+# copy_playable(gen_progression(wire_talos, frontload_sum, compose(takefirst, preference, frontload_base)))
+# input('Press ENTER to copy the backloaded progression')
+# copy_playable(gen_progression(wire_talos, backload_sum, compose(takefirst, preference, frontload_base)))
 
 # copy_for_online(gen_progression(all_objs, usage_obj_heuristic=takefirst))
 
